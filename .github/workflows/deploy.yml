@@ -1,0 +1,98 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.html'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # required to request the OIDC token
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  S3_BUCKET: zentrixai-in-site-595588091602
+  DISTRIBUTION_ID: E2LUUZCO7MP2MY
+  # Switch to https://zentrixai.in once the GoDaddy nameservers point at Route 53.
+  SITE_URL: https://d1z83quf9gvmrx.cloudfront.net
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::595588091602:role/zentrixai-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync HTML to S3
+        run: |
+          aws s3 sync . "s3://$S3_BUCKET/" \
+            --exclude "*" \
+            --include "*.html" \
+            --content-type "text/html; charset=utf-8" \
+            --cache-control "public, max-age=300, must-revalidate" \
+            --delete \
+            --no-progress
+
+      - name: Invalidate CloudFront cache
+        run: |
+          ID=$(aws cloudfront create-invalidation \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --paths "/*" \
+            --query 'Invalidation.Id' --output text)
+          echo "Invalidation: $ID"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$DISTRIBUTION_ID" --id "$ID"
+          echo "Cache cleared."
+
+      - name: Smoke test live site
+        run: |
+          fail=0
+          for path in "/"; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 45 "$SITE_URL$path")
+            if [ "$code" = "200" ]; then
+              echo "OK   $path -> $code"
+            else
+              echo "FAIL $path -> $code"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Check analytics tag survived the build
+        run: |
+          fail=0
+          for f in *.html; do
+            if grep -q 'analytics.adpe.ai' "$f"; then
+              echo "OK   $f has the tracking tag"
+            else
+              echo "FAIL $f is missing the tracking tag - a re-export probably dropped it"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Deployment"
+            echo ""
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Commit | \`${GITHUB_SHA:0:7}\` |"
+            echo "| Site | $SITE_URL |"
+            echo "| Status | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
