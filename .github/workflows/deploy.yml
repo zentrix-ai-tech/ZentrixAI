@@ -20,8 +20,7 @@ env:
   AWS_REGION: ap-south-1
   S3_BUCKET: zentrixai-in-site-595588091602
   DISTRIBUTION_ID: E2LUUZCO7MP2MY
-  # Switch to https://zentrixai.in once the GoDaddy nameservers point at Route 53.
-  SITE_URL: https://d1z83quf9gvmrx.cloudfront.net
+  SITE_URL: https://zentrixai.in
 
 jobs:
   deploy:
@@ -69,6 +68,11 @@ jobs:
               fail=1
             fi
           done
+          redirect=$(curl -s -o /dev/null -w '%{redirect_url}' --max-time 45 "https://www.zentrixai.in/")
+          case "$redirect" in
+            https://zentrixai.in/*) echo "OK   www redirect -> $redirect" ;;
+            *) echo "FAIL www redirect -> ${redirect:-none}"; fail=1 ;;
+          esac
           exit $fail
 
       - name: Check analytics tag survived the build
