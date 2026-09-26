@@ -38,14 +38,14 @@ jobs:
       - name: Sync HTML to S3
         run: |
           # App privacy policies live in the bucket too, uploaded from each app's
-          # own repo (e.g. astro-forecast/legal/). Excluded paths are neither
+          # own repo (e.g. astrology/legal/). Excluded paths are neither
           # uploaded nor deleted, so --delete below cannot remove them. A Play
           # listing whose privacy URL 404s is a policy violation.
           aws s3 sync . "s3://$S3_BUCKET/" \
             --exclude "*" \
             --include "*.html" \
             --exclude "ai-daily-news/*" \
-            --exclude "astro-forecast/*" \
+            --exclude "astrology/*" \
             --content-type "text/html; charset=utf-8" \
             --cache-control "public, max-age=300, must-revalidate" \
             --delete \
@@ -67,7 +67,7 @@ jobs:
           fail=0
           # The app privacy pages are cited by store listings; losing one is a
           # policy strike, so check they survived the sync.
-          for path in "/" "/ai-daily-news/privacy.html" "/astro-forecast/privacy.html"; do
+          for path in "/" "/ai-daily-news/privacy.html" "/astrology/privacy.html"; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 45 "$SITE_URL$path")
             if [ "$code" = "200" ]; then
               echo "OK   $path -> $code"
